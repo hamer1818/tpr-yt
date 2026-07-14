@@ -1,0 +1,20 @@
+# Derleme çıktıları
+/tpr-yt
+/tpr-yt.exe
+/tpr-yt.o
+*.o
+a.out
+
+# Otomatik indirilen araçlar
+/bin/
+
+# Çalışma-zamanı üretilen dosyalar
+/downloads/
+/config.json
+/archive.txt
+._tpr_meta.json
+
+/downloads
+
+PLAN.md
+    

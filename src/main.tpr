@@ -1,0 +1,55 @@
+// main.tpr — tpr-yt giriş noktası ve kontrolcüsü.
+// YouTube oynatma listesi / video → yüksek kaliteli MP3 indirici.
+//
+// Çalıştırma:  tulpar src/main.tpr        (proje kök dizininden)
+// Derleme:     tulpar build src/main.tpr tpr-yt
+//
+// TÜM modüller yalnızca burada, bir kez import edilir. Modüller birbirini
+// import etmez; hepsi tek global kapsamda toplanır (çift import
+// duplicate-definition hatası verir).
+
+import "src/platform.tpr";
+import "src/util.tpr";
+import "src/config.tpr";
+import "src/deps.tpr";
+import "src/installer.tpr";
+import "src/ytdlp.tpr";
+import "src/download.tpr";
+import "src/ui.tpr";
+
+ui_banner();
+
+// Ayarları yükle (config.json > config.default.json > kod içi varsayılan).
+json cfg = cfg_load();
+
+// İlk başlatmada: eksik bağımlılıkları otomatik indir (auto_install açıksa).
+if (json_bool(cfg, "auto_install", true)) {
+    inst_auto();
+}
+
+// Bağımlılık durumunu göster.
+bool ready = dep_doctor();
+if (ready == false) {
+    print("");
+    line_warn("Bazi bagimliliklar hala eksik. Indirme (secim 2) calismayabilir.");
+}
+
+bool running = true;
+while (running) {
+    str choice = ui_menu();
+
+    if (choice == "1") {
+        dep_doctor();
+    } else if (choice == "2") {
+        print(style("YouTube URL (oynatma listesi veya video): ", "bold"));
+        str url = input();
+        dl_flow(cfg, url);
+    } else if (choice == "3") {
+        cfg = ui_edit_settings(cfg);
+    } else if (choice == "0") {
+        print(style("Gorusuruz!", "bold cyan"));
+        running = false;
+    } else {
+        line_warn("Gecersiz secim: " + choice);
+    }
+}

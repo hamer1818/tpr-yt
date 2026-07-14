@@ -1,0 +1,104 @@
+// download.tpr — İndirme orkestrasyonu: metadata → özet → onay → indir → rapor.
+// Yalnızca main.tpr tarafından bir kez import edilir.
+
+// Metadata boş mu (çekim başarısız)?
+func meta_is_empty(json meta): bool {
+    arrayStr ks = keys(meta);
+    if (length(ks) == 0) {
+        return true;
+    }
+    return false;
+}
+
+// Oynatma listesi / video özeti yazdırır.
+func dl_summarize(json meta) {
+    print("");
+    if (yt_is_playlist(meta)) {
+        int n = yt_entry_count(meta);
+        print(style("Oynatma Listesi: ", "bold") + yt_title(meta));
+        print("Parca sayisi: " + style(toString(n), "bold cyan"));
+        print("");
+        arrayJson entries = meta["entries"];
+        int limit = n;
+        if (limit > 10) {
+            limit = 10;
+        }
+        int i = 0;
+        while (i < limit) {
+            json e = entries[i];
+            str t = "(baslik yok)";
+            if (json_has(e, "title")) {
+                t = e["title"];
+            }
+            print("  " + toString(i + 1) + ". " + truncate(t, 60));
+            i = i + 1;
+        }
+        if (n > 10) {
+            print("  ... ve " + toString(n - 10) + " parca daha");
+        }
+    } else {
+        print(style("Video: ", "bold") + yt_title(meta));
+    }
+    print("");
+}
+
+// e/evet/y/yes ile başlıyorsa onay.
+func is_yes(str s): bool {
+    if (length(s) == 0) {
+        return false;
+    }
+    str first = lower(substring(s, 0, 1));
+    if (first == "e") {
+        return true;
+    }
+    if (first == "y") {
+        return true;
+    }
+    return false;
+}
+
+// Tam indirme akışı.
+func dl_flow(json cfg, str url) {
+    if (length(url) < 4) {
+        line_err("Gecersiz URL.");
+        return;
+    }
+
+    line_info("Metadata cekiliyor (yt-dlp -J)...");
+    json meta = yt_fetch_meta(url);
+
+    if (meta_is_empty(meta)) {
+        line_err("Metadata alinamadi. URL, ag baglantisi veya yt-dlp'yi kontrol edin.");
+        yt_cleanup();
+        return;
+    }
+
+    dl_summarize(meta);
+
+    str outdir = cfg["output_dir"];
+    str quality = cfg["audio_quality"];
+    print("Cikti klasoru : " + style(outdir, "cyan"));
+    print("Ses kalitesi  : mp3 / --audio-quality " + quality + "  (0 = en yuksek VBR)");
+    print("");
+    print("Indirme baslasin mi? (e/h): ");
+    str ans = input();
+    if (is_yes(ans) == false) {
+        line_warn("Iptal edildi.");
+        yt_cleanup();
+        return;
+    }
+
+    print("");
+    line_info("Indirme basliyor (yt-dlp ciktisi asagida)...");
+    print(repeat_str("-", 44));
+    int rc = yt_download(cfg, url);
+    print(repeat_str("-", 44));
+
+    if (rc == 0) {
+        line_ok("Tamamlandi. Dosyalar: " + outdir);
+    } else {
+        line_warn("yt-dlp cikis kodu: " + toString(rc) + " (bazi parcalar atlanmis olabilir).");
+        line_info("Arsiv acikken tekrar calistirmak kaldigi yerden devam eder.");
+    }
+    yt_cleanup();
+}

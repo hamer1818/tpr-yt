@@ -1,0 +1,42 @@
+// util.tpr — Renkli çıktı, log ve küçük string yardımcıları.
+// Yalnızca main.tpr tarafından bir kez import edilir.
+
+// ANSI renk. Modern terminaller (Windows Terminal, Linux) destekler.
+func cstyle(str text, str spec): str {
+    return style(text, spec);
+}
+
+func line_ok(str s) {
+    print(style("  [OK] ", "bold green") + s);
+}
+
+func line_err(str s) {
+    print(style("  [X]  ", "bold red") + s);
+}
+
+func line_warn(str s) {
+    print(style("  [!]  ", "bold yellow") + s);
+}
+
+func line_info(str s) {
+    print(style("  [i]  ", "bold cyan") + s);
+}
+
+// Bir karakteri n kez tekrarlar (ayraç çizgileri için).
+func repeat_str(str s, int n): str {
+    str out = "";
+    int i = 0;
+    while (i < n) {
+        out = out + s;
+        i = i + 1;
+    }
+    return out;
+}
+
+// Uzun metni n karaktere kısaltır, sonuna "..." ekler.
+func truncate(str s, int n): str {
+    if (length(s) > n) {
+        return substring(s, 0, n) + "...";
+    }
+    return s;
+}

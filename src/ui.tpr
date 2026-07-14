@@ -1,0 +1,106 @@
+// ui.tpr — Renkli banner, menü ve ayar ekranları.
+// Yalnızca main.tpr tarafından bir kez import edilir.
+
+func ui_banner() {
+    print(style(repeat_str("=", 46), "cyan"));
+    print(style("  tpr-yt", "bold cyan") + "  ·  YouTube -> Yuksek Kaliteli MP3");
+    print("  " + style("TulparLang", "bold") + " ile yazildi");
+    print(style(repeat_str("=", 46), "cyan"));
+    if (plat_is_windows()) {
+        print("Platform: " + style("Windows", "bold"));
+    } else {
+        print("Platform: " + style("Linux/Unix", "bold"));
+    }
+    print("");
+}
+
+// Ana menüyü gösterir, seçimi okuyup döner.
+func ui_menu(): str {
+    print("");
+    print(style("--- Menu ---", "bold"));
+    print("  " + style("1", "bold cyan") + ") Bagimlilik denetimi (doctor)");
+    print("  " + style("2", "bold cyan") + ") URL indir (oynatma listesi veya video)");
+    print("  " + style("3", "bold cyan") + ") Ayarlari goster / degistir");
+    print("  " + style("0", "bold cyan") + ") Cikis");
+    print(style("Secim: ", "bold"));
+    return input();
+}
+
+// Geçerli ayarları yazdırır.
+func ui_show_settings(json cfg) {
+    print("");
+    print(style("--- Ayarlar ---", "bold"));
+    print("  Cikti klasoru     : " + cfg["output_dir"]);
+    print("  Ses formati       : " + cfg["audio_format"]);
+    print("  Ses kalitesi      : " + cfg["audio_quality"] + "  (0=en yuksek VBR, ya da 320/256/192...)");
+    str em = "hayir";
+    if (json_bool(cfg, "embed_metadata", true)) {
+        em = "evet";
+    }
+    print("  Metadata gom      : " + em);
+    str et = "hayir";
+    if (json_bool(cfg, "embed_thumbnail", true)) {
+        et = "evet";
+    }
+    print("  Kapak resmi gom   : " + et);
+    str ua = "hayir";
+    if (json_bool(cfg, "use_archive", true)) {
+        ua = "evet";
+    }
+    print("  Arsiv (atla/devam): " + ua);
+    print("  Es zamanlilik (-N): " + toString(cfg["concurrency"]));
+    print("");
+}
+
+// e/h sorusuna cevabı bool'a çevirir (boş = mevcut değeri koru).
+func yn_to_bool(str s, bool current): bool {
+    if (length(s) == 0) {
+        return current;
+    }
+    str f = lower(substring(s, 0, 1));
+    if (f == "e") {
+        return true;
+    }
+    if (f == "y") {
+        return true;
+    }
+    return false;
+}
+
+// Basit ayar editörü. Boş bırakılan alan mevcut değeri korur. Kaydeder.
+func ui_edit_settings(json cfg): json {
+    ui_show_settings(cfg);
+    print(style("Degistirmek istediginiz alani girin (bos = koru):", "dim"));
+    print("");
+
+    print("Cikti klasoru [" + cfg["output_dir"] + "]: ");
+    str od = input();
+    if (length(od) > 0) {
+        cfg["output_dir"] = od;
+    }
+
+    print("Ses kalitesi (0=en iyi VBR / 320 / 256 / 192) [" + cfg["audio_quality"] + "]: ");
+    str q = input();
+    if (length(q) > 0) {
+        cfg["audio_quality"] = q;
+    }
+
+    print("Metadata gomulsun mu? (e/h) [" + toString(json_bool(cfg, "embed_metadata", true)) + "]: ");
+    str em = input();
+    cfg["embed_metadata"] = yn_to_bool(em, json_bool(cfg, "embed_metadata", true));
+
+    print("Kapak resmi gomulsun mu? (e/h): ");
+    str et = input();
+    cfg["embed_thumbnail"] = yn_to_bool(et, json_bool(cfg, "embed_thumbnail", true));
+
+    print("Es zamanli parca sayisi (-N) [" + toString(cfg["concurrency"]) + "]: ");
+    str c = input();
+    if (length(c) > 0) {
+        cfg["concurrency"] = toInt(c);
+    }
+
+    cfg_save(cfg);
+    print("");
+    line_ok("Ayarlar config.json'a kaydedildi.");
+    return cfg;
+}

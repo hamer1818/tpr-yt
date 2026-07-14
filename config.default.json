@@ -1,0 +1,12 @@
+{
+  "auto_install": true,
+  "output_dir": "downloads",
+  "audio_format": "mp3",
+  "audio_quality": "0",
+  "embed_metadata": true,
+  "embed_thumbnail": true,
+  "use_archive": true,
+  "archive_file": "archive.txt",
+  "name_template": "%(playlist_index)s - %(title)s.%(ext)s",
+  "concurrency": 1
+}

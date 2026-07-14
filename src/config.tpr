@@ -1,0 +1,67 @@
+// config.tpr — Ayar yükleme/kaydetme ve JSON yardımcıları.
+// Yalnızca main.tpr tarafından bir kez import edilir.
+
+// Bir JSON nesnesinde anahtar var mı?
+func json_has(json obj, str key): bool {
+    arrayStr ks = keys(obj);
+    for (k in ks) {
+        if (k == key) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Güvenli bool okuma (anahtar yoksa fallback).
+func json_bool(json obj, str key, bool fallback): bool {
+    if (json_has(obj, key)) {
+        if (obj[key] == true) {
+            return true;
+        }
+        return false;
+    }
+    return fallback;
+}
+
+// Varsayılan ayarlar (kod içi kaynak-doğruluk).
+func cfg_defaults(): json {
+    json c = {};
+    c["auto_install"] = true;
+    c["output_dir"] = "downloads";
+    c["audio_format"] = "mp3";
+    c["audio_quality"] = "0";
+    c["embed_metadata"] = true;
+    c["embed_thumbnail"] = true;
+    c["use_archive"] = true;
+    c["archive_file"] = "archive.txt";
+    c["name_template"] = "%(playlist_index)s - %(title)s.%(ext)s";
+    c["concurrency"] = 1;
+    return c;
+}
+
+// config.json varsa onu, yoksa config.default.json'u varsayılanların üstüne
+// bindirerek yükler. Hiçbiri yoksa saf varsayılanları döner.
+func cfg_load(): json {
+    json c = cfg_defaults();
+    str path = "";
+    if (file_exists("config.json")) {
+        path = "config.json";
+    } else if (file_exists("config.default.json")) {
+        path = "config.default.json";
+    }
+    if (path == "") {
+        return c;
+    }
+    str raw = read_file(path);
+    json user = fromJson(raw);
+    arrayStr ks = keys(user);
+    for (k in ks) {
+        c[k] = user[k];
+    }
+    return c;
+}
+
+// Ayarları config.json'a yazar.
+func cfg_save(json c) {
+    write_file("config.json", toJson(c));
+}

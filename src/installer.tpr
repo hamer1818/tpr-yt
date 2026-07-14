@@ -1,0 +1,143 @@
+// installer.tpr — Eksik bağımlılıkları otomatik olarak bin/ klasörüne indirir.
+// Yönetici hakkı / paket yöneticisi / PATH yenileme gerektirmez; uygulama
+// plat_tool_cmd ile bin/ içindeki araçları doğrudan çözer.
+//
+// Araçlar: yt-dlp (tek binary), ffmpeg (statik arşiv), deno (JS runtime, zip).
+// İndirme: curl (Windows 10 1803+ ve Linux'ta yerleşik).
+// Çıkarma: tar (Windows 10 17063+ zip'i de açar; Linux'ta tar.xz).
+// Yalnızca main.tpr tarafından bir kez import edilir.
+
+// bin/ klasörünü oluşturur (yoksa).
+func inst_ensure_bin() {
+    if (plat_is_windows()) {
+        sys_run("if not exist bin mkdir bin");
+    } else {
+        sys_run("mkdir -p bin");
+    }
+}
+
+// Bir dosyayı indirir (curl). Başarılıysa dosyanın varlığını doğrular.
+func inst_download(str url, str dest): bool {
+    str cmd = "curl -L --fail -# -o " + plat_quote(dest) + " " + plat_quote(url);
+    int rc = sys_run(cmd);
+    if (rc != 0) {
+        return false;
+    }
+    return file_exists(dest);
+}
+
+// --- yt-dlp ---
+func inst_ytdlp(): bool {
+    line_info("yt-dlp indiriliyor...");
+    str dest = "bin" + plat_sep() + "yt-dlp" + plat_exe_suffix();
+    str url = "";
+    if (plat_is_windows()) {
+        url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+    } else {
+        url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
+    }
+    if (inst_download(url, dest) == false) {
+        return false;
+    }
+    if (plat_is_windows() == false) {
+        sys_run("chmod +x " + plat_quote(dest));
+    }
+    return true;
+}
+
+// --- ffmpeg (statik build; ffprobe da yanında gelir) ---
+// Not: `str url` fonksiyon kapsamında tanımlanır (blok içinde tanımlanan string
+// yerelleri Tulpar'da fonksiyona geçerken bozulabiliyor).
+func inst_ffmpeg(): bool {
+    line_info("ffmpeg indiriliyor (statik build, biraz surebilir)...");
+    str url = "";
+    if (plat_is_windows()) {
+        url = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip";
+        if (inst_download(url, "bin\\ff.zip") == false) {
+            return false;
+        }
+        sys_run("rmdir /S /Q bin\\fftmp 2>NUL & mkdir bin\\fftmp & tar -xf bin\\ff.zip -C bin\\fftmp");
+        sys_run("copy /Y \"bin\\fftmp\\ffmpeg-master-latest-win64-gpl\\bin\\ffmpeg.exe\" \"bin\\ffmpeg.exe\" >NUL");
+        sys_run("copy /Y \"bin\\fftmp\\ffmpeg-master-latest-win64-gpl\\bin\\ffprobe.exe\" \"bin\\ffprobe.exe\" >NUL");
+        sys_run("rmdir /S /Q bin\\fftmp & del /Q bin\\ff.zip");
+        return file_exists("bin\\ffmpeg.exe");
+    }
+    url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz";
+    if (inst_download(url, "bin/ff.tar.xz") == false) {
+        return false;
+    }
+    sys_run("rm -rf bin/fftmp && mkdir -p bin/fftmp && tar -xf bin/ff.tar.xz -C bin/fftmp");
+    sys_run("cp bin/fftmp/*/ffmpeg bin/ffmpeg && cp bin/fftmp/*/ffprobe bin/ffprobe && chmod +x bin/ffmpeg bin/ffprobe");
+    sys_run("rm -rf bin/fftmp bin/ff.tar.xz");
+    return file_exists("bin/ffmpeg");
+}
+
+// --- deno (yt-dlp'nin JS runtime'ı) ---
+func inst_deno(): bool {
+    line_info("deno (JS runtime) indiriliyor...");
+    str url = "";
+    if (plat_is_windows()) {
+        url = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip";
+        if (inst_download(url, "bin\\deno.zip") == false) {
+            return false;
+        }
+        sys_run("tar -xf bin\\deno.zip -C bin");
+        sys_run("del /Q bin\\deno.zip");
+        return file_exists("bin\\deno.exe");
+    }
+    url = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip";
+    if (inst_download(url, "bin/deno.zip") == false) {
+        return false;
+    }
+    sys_run("cd bin && (unzip -o deno.zip 2>/dev/null || python3 -m zipfile -e deno.zip .) && chmod +x deno");
+    sys_run("rm -f bin/deno.zip");
+    return file_exists("bin/deno");
+}
+
+// Eksik bağımlılıkları otomatik kurar. Zaten hazırsa hiçbir şey indirmez.
+// Hepsi (yt-dlp + ffmpeg) hazır olursa true döner.
+func inst_auto(): bool {
+    bool ytok = dep_check("yt-dlp", "--version");
+    bool ffok = dep_check("ffmpeg", "-version");
+    bool jsok = dep_check_js();
+
+    if (ytok && ffok && jsok) {
+        return true;
+    }
+
+    print("");
+    line_warn("Eksik bagimliliklar otomatik kuruluyor (bin/ klasorune)...");
+    print(repeat_str("-", 44));
+    inst_ensure_bin();
+
+    bool core_ok = true;
+
+    if (ytok == false) {
+        if (inst_ytdlp()) {
+            line_ok("yt-dlp kuruldu.");
+        } else {
+            line_err("yt-dlp kurulamadi (internet baglantisini kontrol edin).");
+            core_ok = false;
+        }
+    }
+
+    if (ffok == false) {
+        if (inst_ffmpeg()) {
+            line_ok("ffmpeg kuruldu.");
+        } else {
+            line_err("ffmpeg kurulamadi.");
+            core_ok = false;
+        }
+    }
+
+    if (jsok == false) {
+        if (inst_deno()) {
+            line_ok("deno (JS runtime) kuruldu.");
+        } else {
+            line_warn("deno kurulamadi; bazi videolar cikarilamayabilir.");
+        }
+    }
+
+    print(repeat_str("-", 44));
+    return core_ok;
+}

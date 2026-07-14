@@ -1,0 +1,69 @@
+// deps.tpr — Harici bağımlılık ("doctor") denetimi: yt-dlp ve ffmpeg.
+// platform.tpr fonksiyonlarına dayanır; main.tpr onu bu dosyadan ÖNCE
+// import eder (bu dosya platform'u yeniden import ETMEZ — çift import
+// duplicate-definition hatası verir).
+
+// Bir aracın çalıştırılabilir olup olmadığını versiyon bayrağıyla dener.
+// Çıktı sessize alınır; yalnızca exit kodu (0 = var) önemlidir.
+func dep_check(str name, str version_flag): bool {
+    str cmd = plat_tool_cmd(name) + " " + version_flag + plat_null_redirect();
+    int rc = sys_run(cmd);
+    if (rc == 0) {
+        return true;
+    }
+    return false;
+}
+
+// yt-dlp'nin güncel YouTube çıkarımı için bir JS runtime (deno/node) var mı?
+func dep_check_js(): bool {
+    if (dep_check("deno", "--version")) {
+        return true;
+    }
+    if (dep_check("node", "--version")) {
+        return true;
+    }
+    return false;
+}
+
+// Platforma özel kurulum ipucu yazdırır.
+func dep_hint(str name) {
+    if (plat_is_windows()) {
+        print("  Kurulum (Windows): winget install " + name);
+        print("  veya https://github.com/yt-dlp/yt-dlp/releases adresinden");
+        print("  " + name + ".exe indirip uygulamanın yanındaki bin\\ klasörüne koyun.");
+    } else {
+        print("  Kurulum (Linux): sudo apt install " + name);
+        print("  (yt-dlp için: pipx install yt-dlp  ya da  sudo apt install yt-dlp)");
+    }
+}
+
+// Tüm bağımlılıkları denetler; hepsi hazırsa true döner.
+func dep_doctor(): bool {
+    print("");
+    print(style("Bagimliliklar denetleniyor...", "bold"));
+    bool ok = true;
+
+    if (dep_check("yt-dlp", "--version")) {
+        line_ok("yt-dlp bulundu.");
+    } else {
+        line_err("yt-dlp bulunamadi.");
+        dep_hint("yt-dlp");
+        ok = false;
+    }
+
+    if (dep_check("ffmpeg", "-version")) {
+        line_ok("ffmpeg bulundu.");
+    } else {
+        line_err("ffmpeg bulunamadi.");
+        dep_hint("ffmpeg");
+        ok = false;
+    }
+
+    if (dep_check_js()) {
+        line_ok("JS runtime (deno/node) bulundu.");
+    } else {
+        line_warn("JS runtime yok (guncel YouTube icin deno onerilir).");
+    }
+
+    return ok;
+}

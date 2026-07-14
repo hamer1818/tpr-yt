@@ -1,0 +1,71 @@
+// platform.tpr — İşletim sistemi tespiti ve çapraz-platform yol/komut yardımcıları.
+// Tulpar'da OS builtin'i yok; tespit ortam değişkenleriyle yapılır.
+// Bu dosya yalnızca main.tpr tarafından bir kez import edilir (çift import
+// duplicate-definition hatası verir).
+
+// Windows ise true. Windows'ta `OS` ortam değişkeni "Windows_NT" olur;
+// Linux/macOS'ta bu değişken tanımsız (env "" döner).
+func plat_is_windows(): bool {
+    str os = env("OS");
+    if (os == "Windows_NT") {
+        return true;
+    }
+    return false;
+}
+
+// Yol ayracı: Windows "\", diğerleri "/".
+func plat_sep(): str {
+    if (plat_is_windows()) {
+        return "\\";
+    }
+    return "/";
+}
+
+// Çalıştırılabilir dosya soneki: Windows ".exe", diğerleri "".
+func plat_exe_suffix(): str {
+    if (plat_is_windows()) {
+        return ".exe";
+    }
+    return "";
+}
+
+// Komut çıktısını sessize alma eki (doctor probe'ları için).
+func plat_null_redirect(): str {
+    if (plat_is_windows()) {
+        return " > NUL 2>&1";
+    }
+    return " > /dev/null 2>&1";
+}
+
+// Null aygıtın adı (yönlendirme hedefi olarak).
+func plat_devnull(): str {
+    if (plat_is_windows()) {
+        return "NUL";
+    }
+    return "/dev/null";
+}
+
+// Bir harici aracın (yt-dlp / ffmpeg) çağrı dizesini üretir.
+// Önce uygulama yanındaki bin/ klasörüne bakar; yoksa PATH'e güvenir.
+func plat_tool_cmd(str name): str {
+    str exe = name + plat_exe_suffix();
+    str local = "bin" + plat_sep() + exe;
+    if (file_exists(local)) {
+        return "\"" + local + "\"";
+    }
+    return name;
+}
+
+// Bir yolu boşluklara karşı güvenli hale getirmek için çift tırnaklar.
+func plat_quote(str s): str {
+    return "\"" + s + "\"";
+}
+
+// Bir dosyayı siler (Tulpar'da file_delete builtin'i yok; shell'e devrederiz).
+func plat_delete_file(str path) {
+    if (plat_is_windows()) {
+        sys_run("del /f /q " + plat_quote(path) + " > NUL 2>&1");
+    } else {
+        sys_run("rm -f " + plat_quote(path) + " > /dev/null 2>&1");
+    }
+}

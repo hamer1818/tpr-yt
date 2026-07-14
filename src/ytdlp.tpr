@@ -1,0 +1,119 @@
+// ytdlp.tpr — yt-dlp sarmalayıcı: metadata çekme ve yüksek kaliteli MP3 indirme.
+// Tulpar'da stdout yakalayan builtin olmadığı için yt-dlp'nin JSON çıktısı
+// bir dosyaya yönlendirilir, sonra read_file + fromJson ile okunur.
+// Yalnızca main.tpr tarafından bir kez import edilir; platform/util/config
+// fonksiyonlarına global kapsamdan erişir.
+
+// Metadata'nın yazılacağı geçici dosya.
+func yt_meta_file(): str {
+    return "._tpr_meta.json";
+}
+
+// yt-dlp komutunun önüne, bin/ klasörünü PATH'e ekleyen bir önek koyar; böylece
+// bin/ içine indirilmiş ffmpeg ve deno (JS runtime) yt-dlp tarafından bulunur.
+func yt_path_prefix(): str {
+    if (plat_is_windows()) {
+        return "set \"PATH=bin;%PATH%\" && ";
+    }
+    return "PATH=\"bin:$PATH\" ";
+}
+
+// URL'nin metadata'sını çeker. Oynatma listesi için "entries" içeren tek bir
+// JSON nesnesi döner; tek video için video nesnesi. Hata olursa boş {} döner.
+func yt_fetch_meta(str url): json {
+    str mf = yt_meta_file();
+    if (file_exists(mf)) {
+        plat_delete_file(mf);
+    }
+    str cmd = yt_path_prefix() + plat_tool_cmd("yt-dlp") + " -J --flat-playlist " + plat_quote(url);
+    cmd = cmd + " > " + mf + " 2> " + plat_devnull();
+    int rc = sys_run(cmd);
+    if (rc != 0) {
+        return {};
+    }
+    if (file_exists(mf) == false) {
+        return {};
+    }
+    str raw = read_file(mf);
+    if (length(raw) < 2) {
+        return {};
+    }
+    json meta = fromJson(raw);
+    return meta;
+}
+
+// Metadata bir oynatma listesi mi?
+func yt_is_playlist(json meta): bool {
+    return json_has(meta, "entries");
+}
+
+// Parça sayısı (playlist ise entries uzunluğu, değilse 1).
+func yt_entry_count(json meta): int {
+    if (yt_is_playlist(meta)) {
+        return length(meta["entries"]);
+    }
+    return 1;
+}
+
+// Metadata başlığı ("" yerine okunur bir değer).
+func yt_title(json meta): str {
+    if (json_has(meta, "title")) {
+        return meta["title"];
+    }
+    return "(baslik yok)";
+}
+
+// Config + URL'den tam yt-dlp indirme komutunu kurar.
+func yt_build_cmd(json cfg, str url): str {
+    str sep = plat_sep();
+    str outdir = cfg["output_dir"];
+    str fmt = cfg["audio_format"];
+    str quality = cfg["audio_quality"];
+
+    str cmd = yt_path_prefix() + plat_tool_cmd("yt-dlp");
+    cmd = cmd + " -x --audio-format " + fmt;
+    cmd = cmd + " --audio-quality " + quality;
+
+    if (json_bool(cfg, "embed_metadata", true)) {
+        cmd = cmd + " --embed-metadata";
+    }
+    if (json_bool(cfg, "embed_thumbnail", true)) {
+        cmd = cmd + " --embed-thumbnail";
+    }
+    if (json_bool(cfg, "use_archive", true)) {
+        str arch = cfg["archive_file"];
+        str archpath = outdir + sep + arch;
+        cmd = cmd + " --download-archive " + plat_quote(archpath);
+    }
+
+    int conc = cfg["concurrency"];
+    if (conc > 1) {
+        cmd = cmd + " -N " + toString(conc);
+    }
+
+    // Çıktı şablonu: <output_dir>/<name_template>
+    str tmpl = cfg["name_template"];
+    str outtmpl = outdir + sep + tmpl;
+    cmd = cmd + " -o " + plat_quote(outtmpl);
+
+    // İlerlemeyi görünür tut; devam ederken ağ hatalarında tekrar dene.
+    cmd = cmd + " --no-warnings --retries 5 --ignore-errors";
+
+    cmd = cmd + " " + plat_quote(url);
+    return cmd;
+}
+
+// İndirmeyi çalıştırır; yt-dlp çıktısı canlı akar, exit kodu döner.
+func yt_download(json cfg, str url): int {
+    str cmd = yt_build_cmd(cfg, url);
+    return sys_run(cmd);
+}
+
+// yt-dlp arşivini kullanarak zaten inen dosyalar atlanır (yt-dlp yönetir).
+// Geçici metadata dosyasını temizler.
+func yt_cleanup() {
+    str mf = yt_meta_file();
+    if (file_exists(mf)) {
+        plat_delete_file(mf);
+    }
+}
