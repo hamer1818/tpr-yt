@@ -1,9 +1,4 @@
-# Derleme çıktıları
-/tpr-yt
-/tpr-yt.exe
-/tpr-yt.o
-*.o
-a.out
+
 
 # Otomatik indirilen araçlar
 /bin/
