@@ -1,5 +1,3 @@
-
-
 # Otomatik indirilen araçlar
 /bin/
 
@@ -9,7 +7,15 @@
 /archive.txt
 ._tpr_meta.json
 
-/downloads
+# Güncelleyicinin (src/update.tpr) geçici dosyaları ve eski ikili yedeği
+._tpr_*
+*.old
+
+# Derleme çıktıları — yayın dosyaları scripts/build-release.sh ile üretilir
+# ve GitHub Releases'ta dağıtılır; depoda tutulmazlar (bayatlar + şişirir).
+/dist/
+/tpr-yt
+/tpr-yt.exe
+*.o
 
 PLAN.md
-    

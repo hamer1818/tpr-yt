@@ -1,0 +1,9 @@
+# Kabuk betikleri her zaman LF ile checkout edilmeli: CRLF ile inen bir .sh
+# dosyası Linux/WSL'de "bad interpreter: /bin/bash^M" ile patlar.
+*.sh text eol=lf
+
+# Yayın ikilileri / arşivler ikili dosyadır — satır sonu dönüşümü uygulanmaz.
+*.exe binary
+*.o binary
+*.tar.gz binary
+*.zip binary

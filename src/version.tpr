@@ -1,0 +1,12 @@
+// version.tpr — Uygulama sürümü (tek kaynak-doğruluk).
+// Yeni sürüm yayınlarken BURAYI ve git etiketini birlikte güncelleyin:
+//   1. app_version() değerini yükseltin  (ör. "0.2.0" -> "0.2.1")
+//   2. git tag v0.2.1 && git push origin v0.2.1
+//   3. scripts/release.sh ile ikilileri derleyip yayına yükleyin
+// Güncelleme denetimi (src/update.tpr) buradaki değeri GitHub'daki en son
+// release etiketiyle karşılaştırır.
+// Yalnızca main.tpr tarafından bir kez import edilir.
+
+func app_version(): str {
+    return "0.2.0";
+}

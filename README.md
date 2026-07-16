@@ -22,6 +22,41 @@ ayrıştırmayı, ayarları ve akışı TulparLang yönetir; ağır işi (YouTub
 - ⚙️ `config.json` ile kalıcı ayarlar + menü içi ayar editörü
 - 🎨 Renkli terminal menüsü
 - 🖥️ Tek kaynak, Windows + Linux (çapraz-platform yol/komut soyutlaması)
+- ⬆️ **Kendini güncelleme** — menüden GitHub'daki son sürümü indirir, SHA256
+  ile doğrular ve kendini değiştirir
+
+---
+
+## Kurulum
+
+[**Releases**](https://github.com/hamer1818/tpr-yt/releases/latest) sayfasından
+kendi platformunuzun dosyasını indirin — kurulum gerekmez, tek dosya.
+
+| Dosya | Platform |
+|---|---|
+| `tpr-yt-windows-x64.zip` | Windows 64-bit (binary + config + README) |
+| `tpr-yt-linux-x64.tar.gz` | Linux x86-64 (binary + config + README) |
+| `tpr-yt-windows-x64.exe` | Yalnız Windows binary |
+| `tpr-yt-linux-x64` | Yalnız Linux binary |
+
+```bash
+# Linux
+tar -xzf tpr-yt-linux-x64.tar.gz && cd tpr-yt* 2>/dev/null || true
+chmod +x tpr-yt && ./tpr-yt
+```
+
+Windows'ta `tpr-yt-windows-x64.zip` içeriğini bir klasöre çıkarıp
+`tpr-yt.exe`'yi çalıştırın.
+
+**Sürüm uyumluluğu:** Her iki ikili de **statik** bağlanır — hiçbir sistem
+kütüphanesine bağımlı değildir:
+
+- **Windows:** her 64-bit Windows (DLL gerekmez)
+- **Linux:** her x86-64 dağıtım — **glibc 2.17 ve üzeri**. CentOS 7, Debian 10,
+  Ubuntu 20.04/22.04/24.04+ üzerinde test edildi.
+
+> `sha256sum -c SHA256SUMS.txt` (Windows: `certutil -hashfile <dosya> SHA256`)
+> ile indirdiğiniz dosyayı doğrulayabilirsiniz.
 
 ---
 
@@ -78,6 +113,27 @@ tulpar build src\main.tpr tpr-yt
 .\tpr-yt.exe
 ```
 
+> `tulpar build` yalnızca **giriş dosyasının** damgasına bakarak önbelleğe alır;
+> sadece bir modülü (ör. `src/ui.tpr`) değiştirdiyseniz bayat ikili üretebilir.
+> Derlemeden önce `touch src/main.tpr` yapın.
+
+### Yayın (release) dosyaları
+
+```bash
+scripts/build-release.sh            # Windows exe + statik Linux ikilisi
+scripts/build-release.sh --linux    # yalnız Linux
+```
+
+`dist/` altına ham ikilileri, arşivleri ve `SHA256SUMS.txt`'i üretir.
+
+Linux ikilisi **statik** bağlanır (`TULPAR_AOT_LINK_FLAGS="-static ..."`).
+Tulpar'ın AOT bağlama satırı Linux'ta glibc + libssl'i dinamik bağlar; bu da
+ikiliyi derleyen makinenin glibc sürümüne çivilerdi (v0.1.0 yalnızca
+glibc ≥ 2.38 olan dağıtımlarda çalışıyordu). Statik bağlama bu bağımlılığı
+tamamen kaldırır. Derleme için `libjitterentropy3-dev`, `libzstd-dev`,
+`zlib1g-dev` gerekir (Ubuntu'nun `libcrypto.a`'sının statik bağlamada açıkça
+belirtilmesi gereken bağımlılıkları).
+
 ---
 
 ## Kullanım
@@ -89,6 +145,7 @@ Program interaktif bir menü açar:
   1) Bagimlilik denetimi (doctor)
   2) URL indir (oynatma listesi veya video)
   3) Ayarlari goster / degistir
+  4) Guncellemeleri kontrol et
   0) Cikis
 ```
 
@@ -97,6 +154,27 @@ Program interaktif bir menü açar:
 - İndirilen MP3'ler `output_dir` (varsayılan `downloads/`) altına yazılır.
 - **3** ile çıktı klasörü, kaliteyi ve gömme seçeneklerini değiştirin;
   ayarlar `config.json`'a kaydedilir.
+- **4** ile GitHub'daki son sürüme bakar; yenisi varsa onayınızla indirir,
+  SHA256 sağlamasını doğrular ve kendini günceller (aşağıya bakın).
+
+---
+
+## Güncelleme
+
+Menüden **4**'ü seçin. Uygulama:
+
+1. GitHub API'den en son yayın etiketini çeker ve kendi sürümüyle karşılaştırır,
+2. yeni sürüm varsa onay ister, ikiliyi + `SHA256SUMS.txt`'i indirir,
+3. **SHA256 sağlamasını doğrular** (uyuşmazsa güncellemeyi iptal eder),
+4. çalışan ikiliyi `.old` uzantısıyla yedekleyip yenisini yerine koyar.
+
+Ardından uygulamayı yeniden başlatın; `.old` yedeği bir sonraki açılışta
+otomatik silinir.
+
+> Güncelleyici ikiliyi **çalışma dizininde** `tpr-yt(.exe)` ya da indirdiğiniz
+> ham ad (`tpr-yt-linux-x64` / `tpr-yt-windows-x64.exe`) olarak arar; dosyayı
+> başka bir ada değiştirdiyseniz güncellemeyi elle yapmanız gerekir.
+> Kaynaktan (`tulpar src/main.tpr`) çalıştırırken güncelleme yapılmaz.
 
 ---
 
@@ -127,15 +205,19 @@ Program interaktif bir menü açar:
 tpr-yt/
 ├── src/
 │   ├── main.tpr       # giriş + menü kontrolcüsü (tüm modülleri buradan import eder)
+│   ├── version.tpr    # app_version() — sürüm tek kaynak-doğruluk
 │   ├── platform.tpr   # OS tespiti, yol ayracı, araç/silme yardımcıları
 │   ├── util.tpr       # renkli çıktı, log, string yardımcıları
 │   ├── config.tpr     # config yükle/kaydet + JSON yardımcıları
+│   ├── installer.tpr  # eksik araçları bin/ klasörüne otomatik indirir
 │   ├── ytdlp.tpr      # yt-dlp sarmalayıcı: metadata + indirme komutu
 │   ├── download.tpr   # akış: metadata → özet → onay → indir → rapor
+│   ├── update.tpr     # GitHub Releases üzerinden kendini güncelleme
 │   ├── ui.tpr         # banner, menü, ayar editörü
 │   └── deps.tpr       # bağımlılık doctor
+├── scripts/
+│   └── build-release.sh   # yayın ikilileri + arşivler + SHA256SUMS.txt
 ├── config.default.json
-├── PLAN.md            # kapsamlı tasarım/plan belgesi
 └── README.md
 ```
 

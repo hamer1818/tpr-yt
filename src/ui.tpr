@@ -3,7 +3,8 @@
 
 func ui_banner() {
     print(style(repeat_str("=", 46), "cyan"));
-    print(style("  tpr-yt", "bold cyan") + "  ·  YouTube -> Yuksek Kaliteli MP3");
+    print(style("  tpr-yt", "bold cyan") + "  ·  YouTube -> Yuksek Kaliteli MP3"
+        + "  " + style("v" + app_version(), "dim"));
     print("  " + style("TulparLang", "bold") + " ile yazildi");
     print(style(repeat_str("=", 46), "cyan"));
     if (plat_is_windows()) {
@@ -21,6 +22,7 @@ func ui_menu(): str {
     print("  " + style("1", "bold cyan") + ") Bagimlilik denetimi (doctor)");
     print("  " + style("2", "bold cyan") + ") URL indir (oynatma listesi veya video)");
     print("  " + style("3", "bold cyan") + ") Ayarlari goster / degistir");
+    print("  " + style("4", "bold cyan") + ") Guncellemeleri kontrol et");
     print("  " + style("0", "bold cyan") + ") Cikis");
     print(style("Secim: ", "bold"));
     return input();

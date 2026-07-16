@@ -1,0 +1,396 @@
+// update.tpr — GitHub Releases üzerinden kendini güncelleme ("Guncellemeleri
+// kontrol et" menü seçeneği).
+//
+// Akış:  GitHub API'den en son etiket -> sürüm karşılaştırması -> onay ->
+//        ikiliyi + SHA256SUMS.txt indir -> sağlama doğrula -> yerine koy.
+//
+// Ağ erişimi neden http_request() builtin'i ile DEĞİL de curl ile yapılıyor:
+// Linux yayın ikilisi `-static` ile derleniyor (eski dağıtımlarda da çalışsın
+// diye). Statik glibc'de getaddrinfo/DNS çözümlemesi, derleme anındaki glibc'nin
+// NSS paylaşımlı kütüphanelerini runtime'da arar — yani http_request() statik
+// ikilide eski dağıtımlarda çuvallardı. curl bir alt süreç olduğu için bu
+// tuzağa düşmez ve zaten kurulum (installer.tpr) da onu kullanıyor.
+//
+// Tulpar notu: TÜM `str` yerelleri fonksiyon kapsamında tanımlanır. Blok
+// (if/for/while) içinde tanımlanan string'ler fonksiyona geçerken bozulabiliyor
+// (installer.tpr'deki aynı not). Bu yüzden döngülerde de indeksleme kullanılır.
+//
+// Yalnızca main.tpr tarafından bir kez import edilir.
+
+// --- Sabitler ---------------------------------------------------------------
+
+func upd_repo(): str {
+    return "hamer1818/tpr-yt";
+}
+
+func upd_api_url(): str {
+    return "https://api.github.com/repos/" + upd_repo() + "/releases/latest";
+}
+
+// Bu platform için yayındaki (release) dosya adı.
+func upd_asset_name(): str {
+    if (plat_is_windows()) {
+        return "tpr-yt-windows-x64.exe";
+    }
+    return "tpr-yt-linux-x64";
+}
+
+// Bir yayın dosyasının indirme adresi.
+func upd_download_url(str tag, str fname): str {
+    return "https://github.com/" + upd_repo() + "/releases/download/" + tag + "/" + fname;
+}
+
+// Güncellenecek ikilinin çalışma dizinindeki yolu. Tulpar'da argv[0] / exe-path
+// builtin'i yok; bu yüzden bilinen adlar sırayla denenir: önce arşivden çıkan
+// "tpr-yt(.exe)", sonra doğrudan indirilen ham dosya adı. Bulunamazsa "".
+func upd_self_path(): str {
+    str plain = "tpr-yt" + plat_exe_suffix();
+    if (file_exists(plain)) {
+        return plain;
+    }
+    str asset = upd_asset_name();
+    if (file_exists(asset)) {
+        return asset;
+    }
+    return "";
+}
+
+// --- Sürüm karşılaştırma ----------------------------------------------------
+
+// "v1.2.3" -> "1.2.3"; "1.2.3-beta" -> "1.2.3"
+func upd_core_ver(str tag): str {
+    str v = tag;
+    str first = "";
+    if (length(v) > 0) {
+        first = lower(substring(v, 0, 1));
+        if (first == "v") {
+            v = substring(v, 1, length(v));
+        }
+    }
+    arrayStr parts = split(v, "-");
+    if (length(parts) > 0) {
+        return parts[0];
+    }
+    return v;
+}
+
+// a > b ise 1, a < b ise -1, eşitse 0. major.minor.patch karşılaştırır.
+func upd_ver_cmp(str a, str b): int {
+    arrayStr pa = split(upd_core_ver(a), ".");
+    arrayStr pb = split(upd_core_ver(b), ".");
+    int i = 0;
+    int x = 0;
+    int y = 0;
+    while (i < 3) {
+        x = 0;
+        y = 0;
+        if (i < length(pa)) {
+            x = toInt(pa[i]);
+        }
+        if (i < length(pb)) {
+            y = toInt(pb[i]);
+        }
+        if (x > y) {
+            return 1;
+        }
+        if (x < y) {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// --- SHA256 sağlama ---------------------------------------------------------
+
+// s'in ilk 64 karakteri hex mi?
+func upd_is_hex64(str s): bool {
+    if (length(s) < 64) {
+        return false;
+    }
+    str h = lower(substring(s, 0, 64));
+    str c = "";
+    int i = 0;
+    while (i < 64) {
+        c = substring(h, i, i + 1);
+        if (contains("0123456789abcdef", c) == false) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+// Bir metindeki ilk 64 karakterlik hex sağlamayı döner ("" = yok).
+// Hem `sha256sum` ("<hash>  dosya") hem de `certutil` (hash kendi satırında,
+// eski sürümlerde byte'lar arası boşluklu) çıktısını karşılar: her satırdan
+// boşluklar atılır, ilk 64-hex satırı sağlamadır. certutil'in başlık satırları
+// ("SHA256 hash of file ...") hex olmadığı için elenir.
+func upd_extract_hash(str text): str {
+    arrayStr lines = split(text, "\n");
+    str cl = "";
+    int i = 0;
+    while (i < length(lines)) {
+        cl = replace(replace(trim(lines[i]), "\r", ""), " ", "");
+        if (upd_is_hex64(cl)) {
+            return lower(substring(cl, 0, 64));
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// Bir dosyanın SHA256 sağlamasını hesaplar ("" = hesaplanamadı).
+func upd_sha256(str path): str {
+    str tmp = "._tpr_hash.txt";
+    str cmd = "";
+    if (file_exists(tmp)) {
+        plat_delete_file(tmp);
+    }
+    if (plat_is_windows()) {
+        cmd = "certutil -hashfile " + plat_quote(path) + " SHA256 > " + tmp + " 2>NUL";
+    } else {
+        cmd = "sha256sum " + plat_quote(path) + " > " + tmp + " 2>/dev/null";
+    }
+    sys_run(cmd);
+    if (file_exists(tmp) == false) {
+        return "";
+    }
+    str raw = read_file(tmp);
+    plat_delete_file(tmp);
+    return upd_extract_hash(raw);
+}
+
+// "<hash>  <ad>" satırı tam olarak `fname` dosyasına mı ait?
+// Alt-string araması BURADA YANLIŞ olurdu: "tpr-yt-linux-x64" aynı zamanda
+// "tpr-yt-linux-x64.tar.gz" satırının da içinde geçer; sağlama listesindeki
+// sıraya göre yanlış dosyanın sağlaması seçilebilirdi. Bu yüzden ad, boşlukla
+// ayrılmış belirteçlerle TAM eşleşir.
+func upd_line_is_for(str line, str fname): bool {
+    arrayStr toks = split(trim(replace(line, "\r", "")), " ");
+    int i = 0;
+    str t = "";
+    while (i < length(toks)) {
+        t = trim(toks[i]);
+        if (t == fname) {
+            return true;
+        }
+        // sha256sum ikili kipte ada "*" öneki koyar.
+        if (t == "*" + fname) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+// SHA256SUMS.txt içinden `fname` satırının sağlamasını çeker ("" = yok).
+// Biçim: "<hash>  <dosya adi>" (sha256sum çıktısı).
+func upd_expected_hash(str sums_path, str fname): str {
+    if (file_exists(sums_path) == false) {
+        return "";
+    }
+    str raw = read_file(sums_path);
+    arrayStr lines = split(raw, "\n");
+    int i = 0;
+    while (i < length(lines)) {
+        if (upd_line_is_for(lines[i], fname)) {
+            return upd_extract_hash(lines[i]);
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// --- Sürüm bilgisi çekme ----------------------------------------------------
+
+// GitHub API'den en son yayının etiketini ("v0.2.0") döner; hata olursa "".
+func upd_fetch_latest_tag(): str {
+    str tmp = "._tpr_release.json";
+    if (file_exists(tmp)) {
+        plat_delete_file(tmp);
+    }
+    str cmd = "curl -fsSL --retry 2 -H \"User-Agent: tpr-yt-updater\" -o "
+        + plat_quote(tmp) + " " + plat_quote(upd_api_url()) + plat_null_redirect();
+    int rc = sys_run(cmd);
+    if (rc != 0) {
+        return "";
+    }
+    if (file_exists(tmp) == false) {
+        return "";
+    }
+    str raw = read_file(tmp);
+    plat_delete_file(tmp);
+    if (length(raw) < 2) {
+        return "";
+    }
+    json rel = fromJson(raw);
+    if (json_has(rel, "tag_name") == false) {
+        return "";
+    }
+    return rel["tag_name"];
+}
+
+// --- Kurulum ----------------------------------------------------------------
+
+// Yeni ikiliyi mevcut ikilinin yerine koyar. Çalışan dosyanın üzerine YAZMAK
+// hem Windows'ta (paylaşım ihlali) hem Linux'ta (ETXTBSY) yasak; ama her iki
+// sistemde de çalışan bir dosyayı YENİDEN ADLANDIRMAK serbest. Bu yüzden:
+// eski ikili .old'a taşınır, yenisi onun adına konur. .old bir sonraki
+// açılışta upd_cleanup_backup() ile silinir.
+func upd_install(str self, str newf): bool {
+    str backup = self + ".old";
+    if (file_exists(backup)) {
+        plat_delete_file(backup);
+    }
+    if (plat_is_windows()) {
+        sys_run("move /Y " + plat_quote(self) + " " + plat_quote(backup) + " > NUL 2>&1");
+        sys_run("move /Y " + plat_quote(newf) + " " + plat_quote(self) + " > NUL 2>&1");
+    } else {
+        sys_run("mv -f " + plat_quote(self) + " " + plat_quote(backup) + " > /dev/null 2>&1");
+        sys_run("mv -f " + plat_quote(newf) + " " + plat_quote(self) + " > /dev/null 2>&1");
+        sys_run("chmod +x " + plat_quote(self) + " > /dev/null 2>&1");
+    }
+
+    if (file_exists(self)) {
+        return true;
+    }
+
+    // Taşıma yarıda kaldı: eski ikiliyi geri al ki uygulama kullanılamaz hale
+    // gelmesin.
+    if (file_exists(backup)) {
+        if (plat_is_windows()) {
+            sys_run("move /Y " + plat_quote(backup) + " " + plat_quote(self) + " > NUL 2>&1");
+        } else {
+            sys_run("mv -f " + plat_quote(backup) + " " + plat_quote(self) + " > /dev/null 2>&1");
+        }
+    }
+    return false;
+}
+
+// İndirme + doğrulama + kurulum. Başarılıysa true.
+func upd_apply(str tag): bool {
+    str self = upd_self_path();
+    if (length(self) == 0) {
+        line_err("Guncellenecek calistirilabilir dosya bulunamadi.");
+        line_info("Beklenen ad: " + "tpr-yt" + plat_exe_suffix() + " (ya da " + upd_asset_name() + ")");
+        line_info("Uygulamayi kendi klasorunden calistirin; kaynaktan calistirirken (tulpar src/main.tpr) guncelleme yapilamaz.");
+        return false;
+    }
+
+    str asset = upd_asset_name();
+    str newf = "._tpr_new" + plat_exe_suffix();
+    str sums = "._tpr_sums.txt";
+    if (file_exists(newf)) {
+        plat_delete_file(newf);
+    }
+
+    line_info("Indiriliyor: " + asset + "  (" + tag + ")");
+    if (inst_download(upd_download_url(tag, asset), newf) == false) {
+        line_err("Indirme basarisiz. Bu platform icin yayinda dosya olmayabilir.");
+        return false;
+    }
+
+    // Bütünlük denetimi. Sağlama listesi indirilebiliyorsa uyuşmazlık ölümcül
+    // hatadır (yarım/bozuk indirme ile ikiliyi bozmayalim). Liste yoksa
+    // uyarıp devam ederiz — indirme zaten HTTPS ile GitHub'dan doğrulanıyor.
+    line_info("Butunluk dogrulaniyor (SHA256)...");
+    if (file_exists(sums)) {
+        plat_delete_file(sums);
+    }
+    str want = "";
+    str got = "";
+    if (inst_download(upd_download_url(tag, "SHA256SUMS.txt"), sums)) {
+        want = upd_expected_hash(sums, asset);
+        got = upd_sha256(newf);
+        plat_delete_file(sums);
+        if (length(want) == 0) {
+            line_warn("Saglama listesinde " + asset + " yok; dogrulama atlandi.");
+        } else if (length(got) == 0) {
+            line_warn("Yerel saglama hesaplanamadi; dogrulama atlandi.");
+        } else if (want == got) {
+            line_ok("Saglama dogrulandi.");
+        } else {
+            line_err("SAGLAMA UYUSMUYOR! Guncelleme iptal edildi.");
+            line_info("  beklenen: " + want);
+            line_info("  bulunan : " + got);
+            plat_delete_file(newf);
+            return false;
+        }
+    } else {
+        line_warn("SHA256SUMS.txt indirilemedi; dogrulama atlandi.");
+    }
+
+    line_info("Kuruluyor...");
+    if (upd_install(self, newf) == false) {
+        line_err("Kurulum basarisiz (dosya kilitli olabilir).");
+        plat_delete_file(newf);
+        return false;
+    }
+
+    line_ok("Guncelleme tamamlandi: " + tag);
+    line_info("Yedek: " + self + ".old  (bir sonraki acilista silinir)");
+    return true;
+}
+
+// --- Dışa açık uçlar --------------------------------------------------------
+
+// Önceki güncellemeden kalan .old yedeğini siler. main.tpr açılışta çağırır
+// (çalışan ikili artık yeni olduğu için yedek serbesttir).
+func upd_cleanup_backup() {
+    str self = upd_self_path();
+    str backup = "";
+    if (length(self) == 0) {
+        return;
+    }
+    backup = self + ".old";
+    if (file_exists(backup)) {
+        plat_delete_file(backup);
+    }
+}
+
+// Menü seçeneği: sürüm denetle, onay al, güncelle.
+func upd_check_and_apply() {
+    print("");
+    print(style("--- Guncelleme Denetimi ---", "bold"));
+    line_info("GitHub'dan surum bilgisi aliniyor...");
+
+    str tag = upd_fetch_latest_tag();
+    if (length(tag) == 0) {
+        line_err("Surum bilgisi alinamadi.");
+        line_info("Internet baglantinizi kontrol edin (curl gerekir).");
+        return;
+    }
+
+    str cur = app_version();
+    print("");
+    print("  Yuklu surum : " + style("v" + cur, "bold"));
+    print("  Son surum   : " + style(tag, "bold cyan"));
+    print("");
+
+    int cmp = upd_ver_cmp(tag, cur);
+    if (cmp <= 0) {
+        line_ok("Zaten en guncel surumu kullaniyorsunuz.");
+        return;
+    }
+
+    line_warn("Yeni surum yayinlanmis: " + tag);
+    print("Simdi indirilip kurulsun mu? (e/h): ");
+    str ans = input();
+    if (is_yes(ans) == false) {
+        line_warn("Guncelleme iptal edildi.");
+        return;
+    }
+
+    print("");
+    if (upd_apply(tag)) {
+        print("");
+        line_warn("Yeni surumun etkin olmasi icin uygulamayi yeniden baslatin.");
+        print("Simdi cikilsin mi? (e/h): ");
+        str q = input();
+        if (is_yes(q)) {
+            print(style("Gorusuruz!", "bold cyan"));
+            exit(0);
+        }
+    }
+}

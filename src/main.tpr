@@ -8,6 +8,7 @@
 // import etmez; hepsi tek global kapsamda toplanır (çift import
 // duplicate-definition hatası verir).
 
+import "src/version.tpr";
 import "src/platform.tpr";
 import "src/util.tpr";
 import "src/config.tpr";
@@ -15,7 +16,12 @@ import "src/deps.tpr";
 import "src/installer.tpr";
 import "src/ytdlp.tpr";
 import "src/download.tpr";
+import "src/update.tpr";
 import "src/ui.tpr";
+
+// Bir önceki güncellemeden kalan .old yedeğini temizle (çalışan ikili artık
+// yeni sürüm olduğu için yedek serbest).
+upd_cleanup_backup();
 
 ui_banner();
 
@@ -46,6 +52,8 @@ while (running) {
         dl_flow(cfg, url);
     } else if (choice == "3") {
         cfg = ui_edit_settings(cfg);
+    } else if (choice == "4") {
+        upd_check_and_apply();
     } else if (choice == "0") {
         print(style("Gorusuruz!", "bold cyan"));
         running = false;
