@@ -28,81 +28,316 @@ func ui_menu(): str {
     return input();
 }
 
-// Geçerli ayarları yazdırır.
-func ui_show_settings(json cfg) {
-    print("");
-    print(style("--- Ayarlar ---", "bold"));
-    print("  Cikti klasoru     : " + cfg["output_dir"]);
-    print("  Ses formati       : " + cfg["audio_format"]);
-    print("  Ses kalitesi      : " + cfg["audio_quality"] + "  (0=en yuksek VBR, ya da 320/256/192...)");
-    str em = "hayir";
-    if (json_bool(cfg, "embed_metadata", true)) {
-        em = "evet";
+// --- Ayar ekranı yardımcıları -----------------------------------------------
+// Not: yazdırılan tüm metinler ASCII'dir (Türkçe aksan yok) — eski Windows
+// kod sayfalarında bozuk görünmesin diye; dosyanın geri kalanıyla tutarlı.
+
+// bool -> renkli "evet"/"hayir".
+func ui_bool_label(bool b): str {
+    if (b) {
+        return style("evet", "green");
     }
-    print("  Metadata gom      : " + em);
-    str et = "hayir";
-    if (json_bool(cfg, "embed_thumbnail", true)) {
-        et = "evet";
-    }
-    print("  Kapak resmi gom   : " + et);
-    str ua = "hayir";
-    if (json_bool(cfg, "use_archive", true)) {
-        ua = "evet";
-    }
-    print("  Arsiv (atla/devam): " + ua);
-    print("  Es zamanlilik (-N): " + toString(cfg["concurrency"]));
-    print("");
+    return style("hayir", "dim");
 }
 
-// e/h sorusuna cevabı bool'a çevirir (boş = mevcut değeri koru).
-func yn_to_bool(str s, bool current): bool {
+// Numaralı ayar satırı. Etiket ANSI'siz doldurulur (fit_width görünür sütun
+// genişliğini sayar), renk sonra eklenir — böylece kolonlar hizalı kalır.
+func ui_row(str num, str label, str value) {
+    print("  " + style(num, "bold cyan") + "  " + fit_width(label, 21) + value);
+}
+
+// audio_quality değerinin insan-okur açıklaması.
+func ui_quality_desc(str q): str {
+    if (ui_valid_quality(q) == false) {
+        return style("  (gecersiz)", "bold red");
+    }
+    int n = toInt(q);
+    if (n == 0) {
+        return style("  en yuksek VBR (~245-320 kbps)", "dim");
+    }
+    if (n <= 10) {
+        return style("  VBR olcegi (0 = en iyi)", "dim");
+    }
+    return style("  sabit bit hizi (CBR)", "dim");
+}
+
+// yt-dlp --audio-quality: 0-10 VBR ölçeği ya da 32-320 kbps CBR.
+// Aradaki 11-31 aralığı ikisi de değildir (sessizce garip çıktı verir).
+func ui_valid_quality(str s): bool {
     if (length(s) == 0) {
-        return current;
+        return false;
     }
-    str f = lower(substring(s, 0, 1));
-    if (f == "e") {
+    if (isDigit(s) == false) {
+        return false;
+    }
+    int n = toInt(s);
+    if (n <= 10) {
         return true;
     }
-    if (f == "y") {
-        return true;
+    if (n >= 32) {
+        if (n <= 320) {
+            return true;
+        }
     }
     return false;
 }
 
-// Basit ayar editörü. Boş bırakılan alan mevcut değeri korur. Kaydeder.
+// Bir bool ayarı tersine çevirir.
+func ui_toggle(json cfg, str key): json {
+    if (json_bool(cfg, key, true)) {
+        cfg[key] = false;
+    } else {
+        cfg[key] = true;
+    }
+    return cfg;
+}
+
+// Ayar panosu: numaralı, hizalanmış, gruplu.
+func ui_show_settings(json cfg) {
+    str od = cfg["output_dir"];
+    str fmt = cfg["audio_format"];
+    str q = cfg["audio_quality"];
+    str tmpl = cfg["name_template"];
+
+    print("");
+    print(style(repeat_str("=", 46), "cyan"));
+    print(style("  Ayarlar", "bold cyan"));
+    print(style(repeat_str("=", 46), "cyan"));
+
+    print("");
+    print(style("  Indirme", "bold"));
+    ui_row("1", "Cikti klasoru", style(od, "cyan"));
+    ui_row("2", "Ses formati", style(fmt, "cyan"));
+    ui_row("3", "Ses kalitesi", style(q, "cyan") + ui_quality_desc(q));
+    ui_row("4", "Isim sablonu", truncate(tmpl, 38));
+    ui_row("5", "Es zamanlilik (-N)", toString(cfg["concurrency"]));
+
+    print("");
+    print(style("  Etiketleme", "bold"));
+    ui_row("6", "Metadata gom", ui_bool_label(json_bool(cfg, "embed_metadata", true)));
+    ui_row("7", "Kapak resmi gom", ui_bool_label(json_bool(cfg, "embed_thumbnail", true)));
+
+    print("");
+    print(style("  Davranis", "bold"));
+    ui_row("8", "Arsiv (atla/devam)", ui_bool_label(json_bool(cfg, "use_archive", true)));
+    ui_row("9", "Otomatik kurulum", ui_bool_label(json_bool(cfg, "auto_install", true)));
+
+    // wav kapak resmi taşıyamaz; yt-dlp bunu sessizce atlar. Kullanıcı neden
+    // kapak gelmediğini aramasın diye önden söyle.
+    if (fmt == "wav") {
+        if (json_bool(cfg, "embed_thumbnail", true)) {
+            print("");
+            line_warn("wav formati kapak resmi tasimaz; 7'yi kapatabilirsiniz.");
+        }
+    }
+    print("");
+}
+
+// --- Tek alan editörleri ----------------------------------------------------
+// Hepsi aynı sözleşmeyi izler: boş giriş = vazgeç (değer korunur), geçersiz
+// giriş = hata mesajı + değer korunur. Hiçbiri sizi bir sonraki alana zorlamaz.
+
+// 1 — çıktı klasörü
+func ui_edit_output_dir(json cfg): json {
+    str cur = cfg["output_dir"];
+    print("");
+    print(style("  Cikti klasoru", "bold") + style("   simdiki: ", "dim") + cur);
+    print("  Yeni deger (bos = vazgec): ");
+    str v = trim(input());
+    if (length(v) == 0) {
+        return cfg;
+    }
+    cfg["output_dir"] = v;
+    line_ok("Cikti klasoru: " + v);
+    return cfg;
+}
+
+// 2 — ses formatı
+func ui_edit_format(json cfg): json {
+    str cur = cfg["audio_format"];
+    str v = "";
+    print("");
+    print(style("  Ses formati", "bold") + style("   simdiki: ", "dim") + cur);
+    print(style("    1) mp3    en uyumlu (varsayilan)", "dim"));
+    print(style("    2) m4a    AAC — ayni boyutta daha iyi kalite", "dim"));
+    print(style("    3) opus   en iyi sikistirma", "dim"));
+    print(style("    4) flac   kayipsiz", "dim"));
+    print(style("    5) wav    kayipsiz, sikistirmasiz (buyuk)", "dim"));
+    print("  Secim (bos = vazgec): ");
+    v = trim(input());
+    if (length(v) == 0) {
+        return cfg;
+    }
+    if (v == "1") {
+        cfg["audio_format"] = "mp3";
+    } else if (v == "2") {
+        cfg["audio_format"] = "m4a";
+    } else if (v == "3") {
+        cfg["audio_format"] = "opus";
+    } else if (v == "4") {
+        cfg["audio_format"] = "flac";
+    } else if (v == "5") {
+        cfg["audio_format"] = "wav";
+    } else {
+        line_err("Gecersiz secim: " + v);
+        return cfg;
+    }
+    line_ok("Ses formati: " + cfg["audio_format"]);
+    return cfg;
+}
+
+// 3 — ses kalitesi
+func ui_edit_quality(json cfg): json {
+    str cur = cfg["audio_quality"];
+    print("");
+    print(style("  Ses kalitesi", "bold") + style("   simdiki: ", "dim") + cur);
+    print(style("    0-10     VBR olcegi (0 = en iyi, ~245-320 kbps)", "dim"));
+    print(style("    32-320   sabit bit hizi (kbps): 320 / 256 / 192 / 128", "dim"));
+    print("  Yeni deger (bos = vazgec): ");
+    str v = trim(input());
+    if (length(v) == 0) {
+        return cfg;
+    }
+    if (ui_valid_quality(v) == false) {
+        line_err("Gecersiz kalite: " + v + "   (0-10 ya da 32-320 olmali)");
+        return cfg;
+    }
+    cfg["audio_quality"] = v;
+    line_ok("Ses kalitesi: " + v);
+    return cfg;
+}
+
+// 4 — isim şablonu
+func ui_edit_template(json cfg): json {
+    str cur = cfg["name_template"];
+    str v = "";
+    str custom = "";
+    print("");
+    print(style("  Isim sablonu", "bold") + style("   simdiki: ", "dim") + cur);
+    print(style("    1) %(playlist_index)s - %(title)s.%(ext)s   (sirali)", "dim"));
+    print(style("    2) %(title)s.%(ext)s                        (sade)", "dim"));
+    print(style("    3) %(uploader)s - %(title)s.%(ext)s         (sanatci - baslik)", "dim"));
+    print(style("    4) Elle yaz (yt-dlp -o sablonu)", "dim"));
+    print("  Secim (bos = vazgec): ");
+    v = trim(input());
+    if (length(v) == 0) {
+        return cfg;
+    }
+    if (v == "1") {
+        cfg["name_template"] = "%(playlist_index)s - %(title)s.%(ext)s";
+    } else if (v == "2") {
+        cfg["name_template"] = "%(title)s.%(ext)s";
+    } else if (v == "3") {
+        cfg["name_template"] = "%(uploader)s - %(title)s.%(ext)s";
+    } else if (v == "4") {
+        print("  Sablon: ");
+        custom = trim(input());
+        if (length(custom) == 0) {
+            return cfg;
+        }
+        // %(ext)s olmadan yt-dlp uzantisiz dosya yazar; bu neredeyse her
+        // zaman kazadir.
+        if (contains(custom, "%(ext)s") == false) {
+            line_err("Sablon %(ext)s icermeli (dosya uzantisi).");
+            return cfg;
+        }
+        cfg["name_template"] = custom;
+    } else {
+        line_err("Gecersiz secim: " + v);
+        return cfg;
+    }
+    line_ok("Isim sablonu guncellendi.");
+    return cfg;
+}
+
+// 5 — eş zamanlılık
+func ui_edit_concurrency(json cfg): json {
+    print("");
+    print(style("  Es zamanlilik (-N)", "bold") + style("   simdiki: ", "dim")
+        + toString(cfg["concurrency"]));
+    print(style("    1-16 arasi. Yuksek deger indirmeyi hizlandirir; asiri", "dim"));
+    print(style("    degerler YouTube tarafindan sinirlanabilir. Onerilen: 1-4.", "dim"));
+    print("  Yeni deger (bos = vazgec): ");
+    str v = trim(input());
+    if (length(v) == 0) {
+        return cfg;
+    }
+    if (isDigit(v) == false) {
+        line_err("Sayi girin: " + v);
+        return cfg;
+    }
+    int n = toInt(v);
+    if (n < 1) {
+        line_err("En az 1 olmali.");
+        return cfg;
+    }
+    if (n > 16) {
+        line_err("En fazla 16 olabilir.");
+        return cfg;
+    }
+    cfg["concurrency"] = n;
+    line_ok("Es zamanlilik: " + toString(n));
+    return cfg;
+}
+
+// v — varsayılanlara dön
+func ui_reset_defaults(json cfg): json {
+    print("");
+    line_warn("Tum ayarlar varsayilana donecek.");
+    print("  Emin misiniz? (e/h): ");
+    str v = input();
+    if (is_yes(v) == false) {
+        line_warn("Vazgecildi.");
+        return cfg;
+    }
+    line_ok("Ayarlar varsayilana dondu.");
+    return cfg_defaults();
+}
+
+// --- Ayar ekranı ------------------------------------------------------------
+
+// Numara seçilince yalnızca o alan düzenlenir; bool alanlar seçilince anında
+// tersine döner. Her etkileşim sonrası config.json'a yazılır — "kaydetmeyi
+// unuttum" diye bir durum yok. 0 ile çıkılır.
 func ui_edit_settings(json cfg): json {
-    ui_show_settings(cfg);
-    print(style("Degistirmek istediginiz alani girin (bos = koru):", "dim"));
-    print("");
+    bool editing = true;
+    str choice = "";
+    while (editing) {
+        ui_show_settings(cfg);
+        print("  " + style("1-9", "bold cyan") + " = duzenle    "
+            + style("v", "bold cyan") + " = varsayilanlar    "
+            + style("0", "bold cyan") + " = geri");
+        print(style("  Secim: ", "bold"));
+        choice = trim(lower(input()));
 
-    print("Cikti klasoru [" + cfg["output_dir"] + "]: ");
-    str od = input();
-    if (length(od) > 0) {
-        cfg["output_dir"] = od;
+        if (choice == "1") {
+            cfg = ui_edit_output_dir(cfg);
+        } else if (choice == "2") {
+            cfg = ui_edit_format(cfg);
+        } else if (choice == "3") {
+            cfg = ui_edit_quality(cfg);
+        } else if (choice == "4") {
+            cfg = ui_edit_template(cfg);
+        } else if (choice == "5") {
+            cfg = ui_edit_concurrency(cfg);
+        } else if (choice == "6") {
+            cfg = ui_toggle(cfg, "embed_metadata");
+        } else if (choice == "7") {
+            cfg = ui_toggle(cfg, "embed_thumbnail");
+        } else if (choice == "8") {
+            cfg = ui_toggle(cfg, "use_archive");
+        } else if (choice == "9") {
+            cfg = ui_toggle(cfg, "auto_install");
+        } else if (choice == "v") {
+            cfg = ui_reset_defaults(cfg);
+        } else if (choice == "0") {
+            editing = false;
+        } else {
+            line_err("Gecersiz secim: " + choice);
+        }
+
+        cfg_save(cfg);
     }
-
-    print("Ses kalitesi (0=en iyi VBR / 320 / 256 / 192) [" + cfg["audio_quality"] + "]: ");
-    str q = input();
-    if (length(q) > 0) {
-        cfg["audio_quality"] = q;
-    }
-
-    print("Metadata gomulsun mu? (e/h) [" + toString(json_bool(cfg, "embed_metadata", true)) + "]: ");
-    str em = input();
-    cfg["embed_metadata"] = yn_to_bool(em, json_bool(cfg, "embed_metadata", true));
-
-    print("Kapak resmi gomulsun mu? (e/h): ");
-    str et = input();
-    cfg["embed_thumbnail"] = yn_to_bool(et, json_bool(cfg, "embed_thumbnail", true));
-
-    print("Es zamanli parca sayisi (-N) [" + toString(cfg["concurrency"]) + "]: ");
-    str c = input();
-    if (length(c) > 0) {
-        cfg["concurrency"] = toInt(c);
-    }
-
-    cfg_save(cfg);
-    print("");
     line_ok("Ayarlar config.json'a kaydedildi.");
     return cfg;
 }

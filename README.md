@@ -140,7 +140,7 @@ belirtilmesi gereken bağımlılıkları).
 
 Program interaktif bir menü açar:
 
-```
+```text
 --- Menu ---
   1) Bagimlilik denetimi (doctor)
   2) URL indir (oynatma listesi veya video)
@@ -152,10 +152,43 @@ Program interaktif bir menü açar:
 - **2**'yi seçin, bir YouTube URL'si yapıştırın. Program metadata çeker,
   parça sayısını/başlıkları gösterir, onay ister, sonra indirir.
 - İndirilen MP3'ler `output_dir` (varsayılan `downloads/`) altına yazılır.
-- **3** ile çıktı klasörü, kaliteyi ve gömme seçeneklerini değiştirin;
-  ayarlar `config.json`'a kaydedilir.
+- **3** ayar ekranını açar (aşağıya bakın).
 - **4** ile GitHub'daki son sürüme bakar; yenisi varsa onayınızla indirir,
   SHA256 sağlamasını doğrular ve kendini günceller (aşağıya bakın).
+
+### Ayarlar ekranı (menü 3)
+
+```text
+==============================================
+  Ayarlar
+==============================================
+
+  Indirme
+  1  Cikti klasoru        downloads
+  2  Ses formati          mp3
+  3  Ses kalitesi         0  en yuksek VBR (~245-320 kbps)
+  4  Isim sablonu         %(playlist_index)s - %(title)s.%(ext)s
+  5  Es zamanlilik (-N)   1
+
+  Etiketleme
+  6  Metadata gom         evet
+  7  Kapak resmi gom      evet
+
+  Davranis
+  8  Arsiv (atla/devam)   evet
+  9  Otomatik kurulum     evet
+
+  1-9 = duzenle    v = varsayilanlar    0 = geri
+```
+
+- **Numara seçin** → yalnızca o alan düzenlenir; tüm alanları sırayla
+  geçmeniz gerekmez.
+- **Bool alanlar (6-9)** seçilince anında tersine döner.
+- **Boş giriş = vazgeç**, değer korunur. Geçersiz giriş reddedilir ve nedeni
+  söylenir (ör. kalite `0-10` ya da `32-320` olmalı; isim şablonu `%(ext)s`
+  içermeli).
+- **Her değişiklik anında `config.json`'a yazılır** — kaydetmeyi unutma diye
+  bir durum yok. `v` ile varsayılanlara dönebilirsiniz.
 
 ---
 
@@ -201,7 +234,7 @@ otomatik silinir.
 
 ## Mimari
 
-```
+```text
 tpr-yt/
 ├── src/
 │   ├── main.tpr       # giriş + menü kontrolcüsü (tüm modülleri buradan import eder)

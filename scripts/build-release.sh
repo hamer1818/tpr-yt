@@ -46,7 +46,10 @@ case "${1:-}" in
     *) echo "Bilinmeyen secenek: $1" >&2; exit 2 ;;
 esac
 
-VERSION="$(grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' src/version.tpr | head -1 | tr -d '"')"
+# Yalnizca `return "x.y.z";` satirindan oku: version.tpr'nin yorumlarinda da
+# ornek surum numaralari geciyor ve gevsek bir desen onlari yakalar.
+VERSION="$(grep -oE 'return[[:space:]]+"[0-9]+\.[0-9]+\.[0-9]+"' src/version.tpr \
+    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 if [ -z "$VERSION" ]; then
     echo "HATA: src/version.tpr icinden surum okunamadi." >&2
     exit 1

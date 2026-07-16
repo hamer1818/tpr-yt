@@ -8,5 +8,5 @@
 // Yalnızca main.tpr tarafından bir kez import edilir.
 
 func app_version(): str {
-    return "0.2.0";
+    return "0.2.1";
 }
